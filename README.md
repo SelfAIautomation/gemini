@@ -1,0 +1,2 @@
+# gemini
+Geminiスライド作成
