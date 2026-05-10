@@ -1,13 +1,18 @@
 steps:
-  # Collector
+  # Collector: build
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/cb-collector:$SHORT_SHA', './collector']
 
+  # Collector: push
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/cb-collector:$SHORT_SHA']
 
+  # Collector: deploy
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
+    secretEnv:
+      - SUPABASE_URL
+      - SUPABASE_SERVICE_KEY
     args:
       - run
       - deploy
@@ -20,15 +25,21 @@ steps:
       - --timeout=300
       - --set-env-vars=SUPABASE_URL=$$SUPABASE_URL,SUPABASE_SERVICE_KEY=$$SUPABASE_SERVICE_KEY,GCP_PROJECT_ID=$PROJECT_ID
 
-  # Processor
+  # Processor: build
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/cb-processor:$SHORT_SHA', './processor']
 
+  # Processor: push
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/cb-processor:$SHORT_SHA']
 
+  # Processor: deploy
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
+    secretEnv:
+      - SUPABASE_URL
+      - SUPABASE_SERVICE_KEY
+      - GEMINI_API_KEY
     args:
       - run
       - deploy

@@ -51,22 +51,21 @@ def process(request=None):
     ]
 
     cluster_result = ai.extract_topics(article_summaries)
-    if not cluster_result or "clusters" not in cluster_result:
+    if not cluster_result:
         logger.error("Topic extraction failed")
         return {"processed": 0}
 
     published = 0
-    for cluster in cluster_result["clusters"]:
-        indices = cluster.get("article_indices", [])
-        if not indices:
+    for cluster in cluster_result.clusters:
+        if not cluster.article_indices:
             continue
-        cluster_articles = [articles[i] for i in indices if i < len(articles)]
+        cluster_articles = [articles[i] for i in cluster.article_indices if i < len(articles)]
         if not cluster_articles:
             continue
 
         summary = ai.generate_summary(
-            category=cluster.get("category", "crypto"),
-            title_en=cluster.get("representative_title_en", ""),
+            category=cluster.category,
+            title_en=cluster.representative_title_en,
             sources=cluster_articles,
         )
         if not summary:
@@ -83,20 +82,19 @@ def process(request=None):
     return {"processed": published}
 
 
-def _publish_topic(db: Client, cluster: dict, summary: dict) -> str | None:
+def _publish_topic(db: Client, cluster, summary) -> str | None:
     now = datetime.now(timezone.utc).isoformat()
-    is_breaking = cluster.get("is_breaking", False)
     topic = {
-        "title_ja": summary.get("title_ja", cluster.get("representative_title_ja", "")),
-        "title_en": summary.get("title_en", cluster.get("representative_title_en", "")),
-        "body_ja": summary.get("body_ja", ""),
-        "body_en": summary.get("body_en", ""),
-        "summary_ja": summary.get("summary_ja", ""),
-        "summary_en": summary.get("summary_en", ""),
-        "category": cluster.get("category", "crypto"),
+        "title_ja": summary.title_ja,
+        "title_en": summary.title_en,
+        "body_ja": summary.body_ja,
+        "body_en": summary.body_en,
+        "summary_ja": summary.summary_ja,
+        "summary_en": summary.summary_en,
+        "category": cluster.category,
         "status": "published",
-        "is_breaking": is_breaking,
-        "importance_score": cluster.get("importance_score", 0.5),
+        "is_breaking": cluster.is_breaking,
+        "importance_score": cluster.importance_score,
         "published_at": now,
         "updated_at": now,
     }
@@ -105,7 +103,7 @@ def _publish_topic(db: Client, cluster: dict, summary: dict) -> str | None:
         topic_id = res.data[0]["id"]
         db.table("topic_events").insert({
             "topic_id": topic_id,
-            "event_type": "breaking" if is_breaking else "created",
+            "event_type": "breaking" if cluster.is_breaking else "created",
             "new_value": {"title_ja": topic["title_ja"]},
         }).execute()
         return topic_id

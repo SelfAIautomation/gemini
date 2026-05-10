@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useCallback } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getBrowserClient } from '@/lib/supabase/browser'
 import type { Topic } from '@/types'
 
 export function useTopicsRealtime(
@@ -8,16 +8,17 @@ export function useTopicsRealtime(
   onUpdate: (topic: Topic) => void,
 ) {
   useEffect(() => {
+    const supabase = getBrowserClient()
     const channel = supabase
       .channel('topics-realtime')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'topics', filter: "status=eq.published" },
+        { event: 'INSERT', schema: 'public', table: 'topics', filter: 'status=eq.published' },
         (payload) => onInsert(payload.new as Topic),
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'topics', filter: "status=eq.published" },
+        { event: 'UPDATE', schema: 'public', table: 'topics', filter: 'status=eq.published' },
         (payload) => onUpdate(payload.new as Topic),
       )
       .subscribe()
@@ -42,7 +43,6 @@ export function useUnreadTopics() {
   const markRead = useCallback((id: string) => {
     const read = getRead()
     read.add(id)
-    // 既読は最新1000件まで保持
     const arr = Array.from(read).slice(-1000)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(arr))
   }, [getRead])

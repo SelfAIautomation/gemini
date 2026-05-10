@@ -41,7 +41,13 @@ export default function TopicTerminal({ initialTopics }: Props) {
   }, [topics, category, search])
 
   const onInsert = useCallback((topic: Topic) => {
-    setTopics(prev => [topic, ...prev])
+    setTopics(prev => {
+      // 再接続時の重複イベント対策: 既存IDがあれば UPDATE として処理
+      if (prev.some(t => t.id === topic.id)) {
+        return prev.map(t => t.id === topic.id ? topic : t)
+      }
+      return [topic, ...prev].slice(0, 200)
+    })
     setNewCount(c => c + 1)
   }, [])
 

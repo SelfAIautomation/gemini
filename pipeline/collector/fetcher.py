@@ -1,8 +1,10 @@
 """RSS/Atom/HTML fetcher with ETag caching and bot-friendly headers."""
 import hashlib
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Optional
 
 import feedparser
@@ -10,9 +12,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-BOT_USER_AGENT = (
-    "CBTerminalBot/1.0 (+https://cb-terminal.dev/bot-info; contact: bot@cb-terminal.dev)"
-)
+# 自分のサービスドメイン・連絡先を環境変数で設定する
+# 例: BOT_CONTACT_URL=https://example.com/bot-info BOT_CONTACT_EMAIL=bot@example.com
+_BOT_CONTACT_URL = os.environ.get("BOT_CONTACT_URL", "https://example.com/bot-info")
+_BOT_CONTACT_EMAIL = os.environ.get("BOT_CONTACT_EMAIL", "bot@example.com")
+BOT_USER_AGENT = f"NewsAggregatorBot/1.0 (+{_BOT_CONTACT_URL}; contact: {_BOT_CONTACT_EMAIL})"
 
 DEFAULT_HEADERS = {
     "User-Agent": BOT_USER_AGENT,
@@ -21,6 +25,22 @@ DEFAULT_HEADERS = {
     "Accept-Encoding": "gzip, deflate",
     "Cache-Control": "no-cache",
 }
+
+
+def parse_retry_after(value: Optional[str]) -> int:
+    """Retry-After ヘッダーを秒数に変換する。秒数整数とHTTP日付形式の両方を処理する。"""
+    if not value:
+        return 60
+    try:
+        return max(1, int(value))
+    except ValueError:
+        pass
+    try:
+        dt = parsedate_to_datetime(value)
+        seconds = int((dt - datetime.now(timezone.utc)).total_seconds())
+        return max(60, seconds)
+    except Exception:
+        return 60
 
 
 @dataclass
@@ -40,15 +60,17 @@ class FetchResult:
 class RSSFetcher:
     def __init__(self, timeout: int = 30):
         self._timeout = timeout
-        self._etag_cache: dict[str, str] = {}
-        self._lm_cache: dict[str, str] = {}
 
-    def fetch(self, url: str) -> FetchResult:
+    def fetch(self, url: str, etag: Optional[str] = None, last_modified: Optional[str] = None) -> FetchResult:
+        """
+        ETag と Last-Modified は呼び出し元が渡す（DB永続化）。
+        メモリキャッシュは持たない。
+        """
         headers = dict(DEFAULT_HEADERS)
-        if url in self._etag_cache:
-            headers["If-None-Match"] = self._etag_cache[url]
-        if url in self._lm_cache:
-            headers["If-Modified-Since"] = self._lm_cache[url]
+        if etag:
+            headers["If-None-Match"] = etag
+        if last_modified:
+            headers["If-Modified-Since"] = last_modified
 
         start = datetime.now(timezone.utc)
         try:
@@ -65,7 +87,7 @@ class RSSFetcher:
             return FetchResult(url=url, status_code=304, duration_ms=duration)
 
         if resp.status_code == 429:
-            retry = int(resp.headers.get("Retry-After", 60))
+            retry = parse_retry_after(resp.headers.get("Retry-After"))
             return FetchResult(url=url, status_code=429, retry_after=retry, duration_ms=duration)
 
         if resp.status_code in (401, 403):
@@ -78,13 +100,8 @@ class RSSFetcher:
 
         content = resp.text
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-
-        etag = resp.headers.get("ETag")
-        lm = resp.headers.get("Last-Modified")
-        if etag:
-            self._etag_cache[url] = etag
-        if lm:
-            self._lm_cache[url] = lm
+        new_etag = resp.headers.get("ETag")
+        new_lm = resp.headers.get("Last-Modified")
 
         entries = self._parse_feed(url, content)
         return FetchResult(
@@ -92,8 +109,8 @@ class RSSFetcher:
             status_code=200,
             content=content,
             content_hash=content_hash,
-            etag=etag,
-            last_modified=lm,
+            etag=new_etag,
+            last_modified=new_lm,
             duration_ms=duration,
             entries=entries,
         )

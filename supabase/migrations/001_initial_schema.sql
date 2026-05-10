@@ -198,13 +198,7 @@ CREATE POLICY "topic_sources_service_write" ON topic_sources
 CREATE POLICY "topic_events_service_write" ON topic_events
   FOR ALL TO service_role USING (true);
 
--- ============================================================
--- Realtime Publication
--- ============================================================
-BEGIN;
-  DROP PUBLICATION IF EXISTS supabase_realtime;
-  CREATE PUBLICATION supabase_realtime FOR TABLE topics, topic_events;
-COMMIT;
+-- NOTE: Realtimeパブリケーションは 002_fetch_state_and_rls_fixes.sql で安全に設定する
 
 -- ============================================================
 -- Initial Source Registry

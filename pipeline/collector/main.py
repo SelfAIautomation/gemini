@@ -46,14 +46,19 @@ def collect(request=None):
             logger.debug(f"Rate limited: {source['source_name']}")
             continue
 
+        # ETag / Last-Modified を DB から読み込む
+        etag, last_modified = limiter.load_fetch_state(source["id"], feed_url)
+
         limiter.wait_if_needed(feed_url)
-        result = fetcher.fetch(feed_url)
+        result = fetcher.fetch(feed_url, etag=etag, last_modified=last_modified)
         limiter.record_result(feed_url, result.status_code, result.error)
 
         _log_fetch(db, source, result)
 
         if result.status_code == 304:
-            logger.info(f"No change: {source['source_name']}")
+            logger.info(f"No change (304): {source['source_name']}")
+            # last_checked_at だけ更新
+            limiter.save_fetch_state(source["id"], feed_url, etag, last_modified, None)
             continue
 
         if result.status_code == 429:
@@ -63,6 +68,12 @@ def collect(request=None):
         if result.status_code != 200:
             logger.warning(f"Failed {result.status_code}: {source['source_name']} ({result.error})")
             continue
+
+        # ETag / Last-Modified / content_hash を DB に保存
+        limiter.save_fetch_state(
+            source["id"], feed_url,
+            result.etag, result.last_modified, result.content_hash
+        )
 
         new_articles = _save_raw_articles(db, source, result)
         collected += len(new_articles)
@@ -88,7 +99,7 @@ def _log_fetch(db: Client, source: dict, result: FetchResult) -> None:
         "error_type": result.error,
         "retry_after": result.retry_after,
         "duration_ms": result.duration_ms,
-        "user_agent": "CBTerminalBot/1.0",
+        "user_agent": "NewsAggregatorBot/1.0",
     }).execute()
 
 

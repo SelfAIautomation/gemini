@@ -1,17 +1,16 @@
-import { createClient } from '@supabase/supabase-js'
-
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-export const supabase = createClient(url, anonKey)
+/**
+ * Server-side data fetching helpers (SSR / Route Handlers).
+ * Browser-side Realtime は lib/supabase/browser.ts の getBrowserClient() を使うこと。
+ */
+import { createServerClient } from './supabase/server'
 
 export async function fetchTopics(options: {
   category?: string
   limit?: number
   offset?: number
-  lang?: 'ja' | 'en'
 }) {
-  let query = supabase
+  const db = createServerClient()
+  let query = db
     .from('topics')
     .select('id, title_ja, title_en, summary_ja, summary_en, category, is_breaking, importance_score, published_at, updated_at')
     .eq('status', 'published')
@@ -31,7 +30,8 @@ export async function fetchTopics(options: {
 }
 
 export async function fetchTopicDetail(id: string) {
-  const { data, error } = await supabase
+  const db = createServerClient()
+  const { data, error } = await db
     .from('topics')
     .select('*, topic_sources(*)')
     .eq('id', id)
@@ -42,13 +42,14 @@ export async function fetchTopicDetail(id: string) {
 }
 
 export async function fetchLatestSummary(periodType: '6h' | '24h') {
-  const { data, error } = await supabase
+  const db = createServerClient()
+  const { data, error } = await db
     .from('summaries')
     .select('*')
     .eq('period_type', periodType)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single()
-  if (error && error.code !== 'PGRST116') throw error
+    .maybeSingle()
+  if (error) throw error
   return data
 }
