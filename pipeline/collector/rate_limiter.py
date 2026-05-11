@@ -122,12 +122,10 @@ class DomainRateLimiter:
             pass
         return None, None
 
-    def save_fetch_state(self, source_id: str, feed_url: str,
-                         etag: str | None, last_modified: str | None,
-                         content_hash: str | None) -> None:
-        """ETag・Last-Modified・content_hash を DB に upsert する。"""
-        if not any([etag, last_modified, content_hash]):
-            return
+    def save_success_fetch_state(self, source_id: str, feed_url: str,
+                                  etag: str | None, last_modified: str | None,
+                                  content_hash: str | None) -> None:
+        """200 時: ETag・Last-Modified・content_hash を全て upsert する。"""
         try:
             self._db.table("source_fetch_state").upsert({
                 "source_id": source_id,
@@ -137,5 +135,15 @@ class DomainRateLimiter:
                 "content_hash": content_hash,
                 "last_checked_at": datetime.now(timezone.utc).isoformat(),
             }, on_conflict="source_id,url").execute()
+        except Exception:
+            pass
+
+    def touch_fetch_state(self, source_id: str, feed_url: str) -> None:
+        """304 時: last_checked_at のみ更新する。etag / last_modified / content_hash は保持。"""
+        try:
+            # UPDATE のみ（行がなければ何もしない）
+            self._db.table("source_fetch_state").update({
+                "last_checked_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("source_id", source_id).eq("url", feed_url).execute()
         except Exception:
             pass

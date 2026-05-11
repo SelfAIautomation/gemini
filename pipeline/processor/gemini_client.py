@@ -53,6 +53,12 @@ class ClusterItem(BaseModel):
         allowed = {"crypto", "macro", "gov", "breaking", "summary"}
         return v if v in allowed else "crypto"
 
+    @field_validator("article_indices")
+    @classmethod
+    def non_negative_indices(cls, v: list[int]) -> list[int]:
+        # 負数インデックスは Python の末尾参照になるため除外する
+        return [i for i in v if i >= 0]
+
 
 class ClusterResult(BaseModel):
     clusters: list[ClusterItem]

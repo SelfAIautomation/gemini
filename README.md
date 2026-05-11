@@ -35,7 +35,8 @@ Vercel: Next.js SSR フロントエンド
 ```
 ├── supabase/migrations/     DBスキーマ (RLS付き)
 │   ├── 001_initial_schema.sql
-│   └── 002_fetch_state_and_rls_fixes.sql
+│   ├── 002_fetch_state_and_rls_fixes.sql
+│   └── 003_processing_flag.sql
 ├── pipeline/
 │   ├── collector/           ニュース収集ワーカー (Python)
 │   ├── processor/           Gemini AI処理ワーカー (Python)
@@ -51,12 +52,16 @@ Vercel: Next.js SSR フロントエンド
 ### 1. Supabase
 
 ```bash
-# Supabase CLI をインストール済みの場合
-supabase db push supabase/migrations/001_initial_schema.sql
-supabase db push supabase/migrations/002_fetch_state_and_rls_fixes.sql
+# Supabase CLI を使う場合 (supabase link 済みのプロジェクト)
+supabase link --project-ref your-project-ref
+supabase db push   # supabase/migrations/ 配下を順番に適用
 
-# または Supabase Dashboard の SQL Editor で順番に実行
+# Supabase CLI が使えない場合は、Supabase Dashboard > SQL Editor で
+# 001 → 002 → 003 の順に貼り付けて実行してください
 ```
+
+> **注意**: 001 だけ実行して止めないこと。002 の RLS 修正と 003 の
+> processing フラグが適用されていない状態では、本番運用は危険です。
 
 ### 2. パイプライン環境変数
 
@@ -149,6 +154,27 @@ gcloud scheduler jobs create http cb-summary-24h-job \
   --location=asia-northeast1
 ```
 
+### Cloud Run Invoker 権限付与
+
+`--no-allow-unauthenticated` でデプロイしているため、Scheduler や Pub/Sub から
+呼び出すサービスアカウントに `roles/run.invoker` を付与する必要があります。
+
+```bash
+# Collector
+gcloud run services add-iam-policy-binding cb-collector \
+  --region=asia-northeast1 \
+  --member="serviceAccount:your-sa@your-project.iam.gserviceaccount.com" \
+  --role="roles/run.invoker"
+
+# Processor
+gcloud run services add-iam-policy-binding cb-processor \
+  --region=asia-northeast1 \
+  --member="serviceAccount:your-sa@your-project.iam.gserviceaccount.com" \
+  --role="roles/run.invoker"
+```
+
+この手順を省くと Scheduler / Pub/Sub からの呼び出しが 403 で失敗します。
+
 ### Cloud Run → Pub/Sub 連携
 
 ```bash
@@ -166,9 +192,16 @@ gcloud pubsub subscriptions create news-process-sub \
 
 - `domain_rules` テーブルで全ドメインの `crawl_interval_seconds` と `max_requests_per_hour` を管理
 - `source_fetch_state` テーブルで ETag/Last-Modified を永続化（Cloud Run 再起動でも失われない）
+  - 200 時: `save_success_fetch_state()` で全フィールドを upsert
+  - 304 時: `touch_fetch_state()` で `last_checked_at` のみ更新（content_hash を NULL 上書きしない）
 - 429/403 が3回続いたドメインは自動的に `enabled=false`
+- Processor は `claim_raw_articles()` RPC (FOR UPDATE SKIP LOCKED) でバッチをアトミックに取得する
+  - 複数 Cloud Run インスタンスが同時起動しても記事を重複処理しない
+  - 10分以上 processing=true の記事は `release_stale_claims()` で自動解放
+- Processor の HTTP パス: `POST /` → 通常バッチ処理、`POST /summary?period=6h|24h|weekly` → 定期まとめ
 - RLS により anon は `status='published'` のトピックのみ読み取り可
 - `topic_events` の anon 公開は、published トピックに紐づくイベントのみに限定
 - `service_role` キーはサーバーサイドのみで使用（フロントエンドは anon key のみ）
 - Supabase Realtime は `topics` と `topic_events` テーブルのみ公開
 - Gemini モデル名・価格は環境変数で差し替え可能（定期的に確認・更新すること）
+- migrations は **001 → 002 → 003 の順に全て適用**すること（001 だけでは RLS と処理フラグが未適用）

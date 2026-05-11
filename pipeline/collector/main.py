@@ -57,8 +57,8 @@ def collect(request=None):
 
         if result.status_code == 304:
             logger.info(f"No change (304): {source['source_name']}")
-            # last_checked_at だけ更新
-            limiter.save_fetch_state(source["id"], feed_url, etag, last_modified, None)
+            # last_checked_at のみ更新。etag/last_modified/content_hash は既存値を保持する
+            limiter.touch_fetch_state(source["id"], feed_url)
             continue
 
         if result.status_code == 429:
@@ -69,8 +69,8 @@ def collect(request=None):
             logger.warning(f"Failed {result.status_code}: {source['source_name']} ({result.error})")
             continue
 
-        # ETag / Last-Modified / content_hash を DB に保存
-        limiter.save_fetch_state(
+        # ETag / Last-Modified / content_hash を DB に保存（200 成功時）
+        limiter.save_success_fetch_state(
             source["id"], feed_url,
             result.etag, result.last_modified, result.content_hash
         )

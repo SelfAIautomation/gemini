@@ -1,6 +1,6 @@
-"""Periodic market summary generator (6h / 24h).
+"""Periodic market summary generator (6h / 24h / weekly).
 
-Triggered by Cloud Scheduler via Pub/Sub.
+Called from main.process() when path is /summary?period=...
 """
 import logging
 import os
@@ -14,12 +14,14 @@ from gemini_client import GeminiClient
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+PERIOD_HOURS = {"6h": 6, "24h": 24, "weekly": 168}
 
-def generate_periodic_summary(period_type: str = "6h"):
+
+def generate_periodic_summary(period_type: str = "6h") -> dict:
     db = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
     ai = GeminiClient(db)
 
-    hours = 6 if period_type == "6h" else 24
+    hours = PERIOD_HOURS.get(period_type, 6)
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
     topics = (
@@ -35,23 +37,25 @@ def generate_periodic_summary(period_type: str = "6h"):
 
     if not topics:
         logger.info(f"No topics for {period_type} summary")
-        return
+        return {"status": "no_topics", "period": period_type}
 
     result = ai.generate_periodic_summary(period_type, topics)
     if not result:
         logger.error("Periodic summary generation failed")
-        return
+        return {"status": "ai_failed", "period": period_type}
 
     db.table("summaries").insert({
         "period_type": period_type,
-        "body_ja": result.get("body_ja", ""),
-        "body_en": result.get("body_en", ""),
+        "body_ja": result.body_ja,
+        "body_en": result.body_en,
         "topic_ids": [t["id"] for t in topics],
     }).execute()
-    logger.info(f"Generated {period_type} summary")
+
+    logger.info(f"Generated {period_type} summary from {len(topics)} topics")
+    return {"status": "ok", "period": period_type, "topics_count": len(topics)}
 
 
 if __name__ == "__main__":
     import sys
     period = sys.argv[1] if len(sys.argv) > 1 else "6h"
-    generate_periodic_summary(period)
+    print(generate_periodic_summary(period))
