@@ -121,8 +121,9 @@ def _process_articles() -> dict:
         if topic_id:
             _link_sources(db, topic_id, cluster_articles)
             published += 1
-
-        processed_ids.extend(a["id"] for a in cluster_articles)
+            processed_ids.extend(a["id"] for a in cluster_articles)
+        else:
+            logger.warning("Topic publish failed; articles will be retried next batch")
 
     _mark_processed(db, processed_ids)
 
