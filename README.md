@@ -49,6 +49,23 @@ Vercel: Next.js SSR フロントエンド
 
 ## セットアップ
 
+### 0. AI Guard Git hook
+
+このリポジトリでは、Push前に既知ミス・禁止ファイル・依存漏れを検査する AI Guard を用意しています。
+clone 後、最初に1回だけ以下を実行してください。
+
+```powershell
+pwsh ./scripts/ai-guard/install-git-hooks.ps1
+```
+
+手動で確認する場合は以下を実行します。
+
+```powershell
+pwsh ./scripts/ai-guard/check-before-push.ps1 -FailOnWarnings
+```
+
+この hook を有効化すると、`git push` 時に `.githooks/pre-push` から AI Guard が自動実行されます。
+
 ### 1. Supabase
 
 ```bash
