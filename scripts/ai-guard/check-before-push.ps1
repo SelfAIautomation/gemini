@@ -36,8 +36,9 @@ foreach ($file in $requiredFiles) {
 # 2. 変更ファイル一覧
 # ============================================================
 Write-Host "`n[2] Changed files"
-$changedFiles = (git diff --name-only) -split "`n" | Where-Object { $_ }
-$stagedFiles  = (git diff --cached --name-only) -split "`n" | Where-Object { $_ }
+$changedFiles   = (git diff --name-only) -split "`n" | Where-Object { $_ }
+$stagedFiles    = (git diff --cached --name-only) -split "`n" | Where-Object { $_ }
+$untrackedFiles = (git ls-files --others --exclude-standard) -split "`n" | Where-Object { $_ }
 
 if ($changedFiles) {
     Write-Host "  Unstaged:"
@@ -53,20 +54,29 @@ if ($stagedFiles) {
     Write-Host "  Staged: (none)"
 }
 
+if ($untrackedFiles) {
+    Write-Host "  Untracked:"
+    $untrackedFiles | ForEach-Object { Write-Host "    $_" }
+} else {
+    Write-Host "  Untracked: (none)"
+}
+
 # ============================================================
 # 3. 禁止パターンチェック（KM との照合）
 # ============================================================
 Write-Host "`n[3] Forbidden file patterns (KM-0001, KM-0002)"
 $forbiddenPatterns = @(
-    @{ pattern = "\.tmp$";       label = "temp file" },
-    @{ pattern = "\.log$";       label = "log file" },
-    @{ pattern = "__pycache__";  label = "Python cache" },
-    @{ pattern = "node_modules"; label = "node_modules" },
-    @{ pattern = "\.env$";       label = ".env file (secrets!)" },
-    @{ pattern = "\.DS_Store$";  label = "macOS metadata" }
+    @{ pattern = "\.tmp$";                                  label = "temp file" },
+    @{ pattern = "\.log$";                                  label = "log file" },
+    @{ pattern = "__pycache__";                             label = "Python cache" },
+    @{ pattern = "node_modules";                            label = "node_modules" },
+    @{ pattern = "(^|/)\.env($|\.(?!example$).+)";          label = ".env file (secrets!)" },
+    @{ pattern = "\.DS_Store$";                             label = "macOS metadata" },
+    @{ pattern = "(?i)(^|/).*(secret|secrets|credential|credentials|token|apikey|api_key|service-role|service_role).*$"; label = "possible secret file" }
 )
 
-$allChanged = (@() + $changedFiles + $stagedFiles) | Where-Object { $_ }
+$allChanged = (@() + $changedFiles + $stagedFiles + $untrackedFiles) | Where-Object { $_ } | Sort-Object -Unique
+$forbiddenWarningsBefore = $warnings.Count
 
 foreach ($file in $allChanged) {
     foreach ($fp in $forbiddenPatterns) {
@@ -76,7 +86,7 @@ foreach ($file in $allChanged) {
     }
 }
 
-if ($warnings.Count -eq 0) {
+if ($warnings.Count -eq $forbiddenWarningsBefore) {
     Write-Host "  [OK] No forbidden files detected"
 }
 
@@ -85,9 +95,11 @@ if ($warnings.Count -eq 0) {
 # ============================================================
 Write-Host "`n[4] Python requirements check (KM-0001/0002/0003)"
 $reqFiles = Get-ChildItem -Recurse -Filter "requirements.txt" -ErrorAction SilentlyContinue
+$reqWarningsBefore = $warnings.Count
 
 foreach ($req in $reqFiles) {
-    $lines = Get-Content $req.FullName | Where-Object { $_ -notmatch "^\s*#" -and $_ -match "\S" }
+    $reqContent = Get-Content $req.FullName -Raw
+    $lines = $reqContent -split "`n" | Where-Object { $_ -notmatch "^\s*#" -and $_ -match "\S" }
     $stdLibNames = @("hashlib", "hashlib2", "os", "sys", "json", "time", "datetime",
                      "re", "collections", "functools", "itertools", "pathlib", "typing")
     foreach ($line in $lines) {
@@ -101,13 +113,13 @@ foreach ($req in $reqFiles) {
     $dockerfilePath = Join-Path $req.DirectoryName "Dockerfile"
     if (Test-Path $dockerfilePath) {
         $dockerfile = Get-Content $dockerfilePath -Raw
-        if ($dockerfile -match "functions.framework" -and (Get-Content $req.FullName) -notmatch "functions.framework") {
-            $warnings += "Dockerfile uses functions_framework but not in $($req.FullName)"
+        if ($dockerfile -match "functions[_-]framework" -and $reqContent -notmatch "functions[_-]framework") {
+            $warnings += "Dockerfile uses functions_framework but functions-framework is not in $($req.FullName)"
         }
     }
 }
 
-if ($warnings.Count -eq 0) {
+if ($warnings.Count -eq $reqWarningsBefore) {
     Write-Host "  [OK] No obvious requirements issues"
 }
 
@@ -116,6 +128,7 @@ if ($warnings.Count -eq 0) {
 # ============================================================
 Write-Host "`n[5] Cloud Build secretEnv check (KM-0011)"
 $cloudbuildFiles = Get-ChildItem -Recurse -Filter "cloudbuild.yaml" -ErrorAction SilentlyContinue
+$cloudWarningsBefore = $warnings.Count
 
 foreach ($cb in $cloudbuildFiles) {
     $content = Get-Content $cb.FullName -Raw
@@ -125,7 +138,7 @@ foreach ($cb in $cloudbuildFiles) {
     }
 }
 
-if ($warnings.Count -eq 0) {
+if ($warnings.Count -eq $cloudWarningsBefore) {
     Write-Host "  [OK] No Cloud Build secretEnv issues detected"
 }
 
@@ -134,6 +147,7 @@ if ($warnings.Count -eq 0) {
 # ============================================================
 Write-Host "`n[6] Migration safety check (KM-0014)"
 $migFiles = Get-ChildItem -Recurse -Filter "*.sql" -ErrorAction SilentlyContinue
+$migrationWarningsBefore = $warnings.Count
 
 foreach ($mig in $migFiles) {
     $content = Get-Content $mig.FullName -Raw
@@ -142,7 +156,7 @@ foreach ($mig in $migFiles) {
     }
 }
 
-if ($warnings.Count -eq 0) {
+if ($warnings.Count -eq $migrationWarningsBefore) {
     Write-Host "  [OK] No DROP PUBLICATION in migrations"
 }
 
