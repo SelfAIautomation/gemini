@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+if command -v pwsh >/dev/null 2>&1; then
+  pwsh ./scripts/ai-guard/check-before-push.ps1 -FailOnWarnings
+elif command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -ExecutionPolicy Bypass -File ./scripts/ai-guard/check-before-push.ps1 -FailOnWarnings
+else
+  echo "[ERROR] PowerShell is required to run AI Guard pre-push check."
+  echo "Install PowerShell 7 (pwsh) or run scripts/ai-guard/check-before-push.ps1 manually."
+  exit 1
+fi
