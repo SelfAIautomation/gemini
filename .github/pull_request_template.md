@@ -17,6 +17,14 @@
 - [ ] Cloud Build の secretEnv を deploy step に設定した（該当する場合）
 - [ ] `--no-allow-unauthenticated` の Cloud Run に Invoker IAM 手順を README に書いた（該当する場合）
 
+## AI Guard
+
+- [ ] `pwsh ./scripts/ai-guard/check-before-push.ps1 -FailOnWarnings` を実行し PASSED を確認した
+- [ ] Git hooks を使う場合、`pwsh ./scripts/ai-guard/install-git-hooks.ps1` を実行済み
+- [ ] 新しい教訓があれば `docs/ai-lessons/MISTAKE_LOG.md` に追記した
+- [ ] 設計判断があれば `docs/ai-lessons/DECISION_HISTORY.md` に追記した
+- [ ] 再発防止ルールが必要なら `.claude/rules/10-known-mistakes.md` に KM-XXXX として昇格した
+
 ## New Lessons Learned
 
 <!-- 今回の作業で新たな教訓があれば記載。なければ「なし」 -->
